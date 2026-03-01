@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, ApiResponse } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -32,6 +32,10 @@ const taskSchema = z.object({
 });
 
 type TaskFormValues = z.infer<typeof taskSchema>;
+type CreateTaskPayload = Omit<TaskFormValues, 'projectName' | 'taskTitle'> & {
+  projectName: string;
+  taskTitle: string;
+};
 
 interface Task {
   _id: string;
@@ -48,6 +52,11 @@ interface Task {
   assignedDate?: string;
 }
 
+interface TaskStats {
+  incompleteCount: number;
+  completedCount: number;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -60,34 +69,43 @@ export default function DashboardPage() {
   } = useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: async () => {
-      const res = await api.get('/tasks');
-      return res.data;
+      const res = await api.get<ApiResponse<Task[]>>('/tasks');
+      return res.data.data;
     },
   });
 
-  const { data: stats } = useQuery<{ incompleteCount: number; completedCount: number }>({
+  const { data: stats } = useQuery<TaskStats>({
     queryKey: ['tasks', 'stats'],
     queryFn: async () => {
-      const res = await api.get('/tasks/stats');
-      return res.data;
+      const res = await api.get<ApiResponse<TaskStats>>('/tasks/stats');
+      return res.data.data;
+    },
+  });
+
+  const { data: projectSuggestions } = useQuery<string[]>({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await api.get<ApiResponse<string[]>>('/projects');
+      return res.data.data;
     },
   });
 
   const createMutation = useMutation({
-    mutationFn: async (payload: TaskFormValues) => {
-      const res = await api.post('/tasks', payload);
-      return res.data;
+    mutationFn: async (payload: CreateTaskPayload) => {
+      const res = await api.post<ApiResponse<Task>>('/tasks', payload);
+      return res.data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['tasks', 'stats'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async (params: { id: string; data: Partial<TaskFormValues> }) => {
-      const res = await api.patch(`/tasks/${params.id}`, params.data);
-      return res.data;
+      const res = await api.patch<ApiResponse<Task>>(`/tasks/${params.id}`, params.data);
+      return res.data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -97,7 +115,7 @@ export default function DashboardPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/tasks/${id}`);
+      await api.delete<ApiResponse<null>>(`/tasks/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -111,10 +129,11 @@ export default function DashboardPage() {
     }
   }, [authLoading, user, router]);
 
-  const projectOptions = useMemo(
-    () => Array.from(new Set((tasks || []).map((t) => t.projectName))).sort(),
-    [tasks],
-  );
+  const projectOptions = useMemo(() => {
+    const fromTasks = (tasks || []).map((task) => task.projectName);
+    const fromProjects = projectSuggestions || [];
+    return Array.from(new Set([...fromTasks, ...fromProjects])).sort();
+  }, [tasks, projectSuggestions]);
 
   const statusBadgeVariant = (status: Task['status']) => {
     switch (status) {
@@ -154,7 +173,24 @@ export default function DashboardPage() {
   });
 
   const onCreate = (values: TaskFormValues) => {
-    createMutation.mutate(values, {
+    const optional = (value?: string) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    };
+
+    const payload: CreateTaskPayload = {
+      projectName: values.projectName.trim(),
+      taskTitle: values.taskTitle.trim(),
+      taskDetails: optional(values.taskDetails),
+      priority: values.priority,
+      dueDate: optional(values.dueDate),
+      estTime: optional(values.estTime),
+      loggedTime: optional(values.loggedTime),
+      notes: optional(values.notes),
+      status: values.status,
+    };
+
+    createMutation.mutate(payload, {
       onSuccess: () => {
         reset();
         refetch();
@@ -229,8 +265,14 @@ export default function DashboardPage() {
                   </label>
                   <Input
                     placeholder="Backend API"
+                    list="project-name-suggestions"
                     {...register('projectName')}
                   />
+                  <datalist id="project-name-suggestions">
+                    {projectOptions.map((project) => (
+                      <option key={project} value={project} />
+                    ))}
+                  </datalist>
                   {errors.projectName && (
                     <p className="mt-1 text-xs text-red-500">
                       {errors.projectName.message}
@@ -334,8 +376,10 @@ export default function DashboardPage() {
               const value = e.target.value;
               const params = new URLSearchParams();
               if (value) params.set('status', value);
-              const res = await api.get(`/tasks?${params.toString()}`);
-              queryClient.setQueryData(['tasks'], res.data);
+              const res = await api.get<ApiResponse<Task[]>>(
+                `/tasks?${params.toString()}`,
+              );
+              queryClient.setQueryData(['tasks'], res.data.data);
             }}
           >
             <option value="">Status: Incomplete (default)</option>
@@ -350,8 +394,10 @@ export default function DashboardPage() {
               const value = e.target.value;
               const params = new URLSearchParams();
               if (value) params.set('projectName', value);
-              const res = await api.get(`/tasks?${params.toString()}`);
-              queryClient.setQueryData(['tasks'], res.data);
+              const res = await api.get<ApiResponse<Task[]>>(
+                `/tasks?${params.toString()}`,
+              );
+              queryClient.setQueryData(['tasks'], res.data.data);
             }}
           >
             <option value="">Project: All</option>
@@ -448,4 +494,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

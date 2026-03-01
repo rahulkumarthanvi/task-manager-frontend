@@ -3,7 +3,13 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, ApiResponse } from '../lib/api';
+
+interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+}
 
 export default function HomePage() {
   const router = useRouter();
@@ -11,8 +17,8 @@ export default function HomePage() {
   const { data: user, isLoading, isError } = useQuery({
     queryKey: ['me'],
     queryFn: async () => {
-      const res = await api.get('/auth/me');
-      return res.data;
+      const res = await api.get<ApiResponse<AuthUser>>('/auth/me');
+      return res.data.data;
     },
     retry: false,
   });

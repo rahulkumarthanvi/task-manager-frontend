@@ -4,12 +4,12 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
+import { api, ApiResponse } from '../../lib/api';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -17,6 +17,13 @@ const loginSchema = z.object({
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
+interface LoginResponseData {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,14 +40,11 @@ export default function LoginPage() {
 
   const mutation = useMutation({
     mutationFn: async (data: LoginFormValues) => {
-      const res = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/auth/login`,
+      const res = await api.post<ApiResponse<LoginResponseData>>(
+        '/auth/login',
         data,
-        {
-          withCredentials: true,
-        },
       );
-      return res.data;
+      return res.data.data;
     },
     onSuccess: () => {
       router.push('/dashboard');
