@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiResponse } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
@@ -61,6 +61,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isLoading: authLoading, logout } = useAuth();
+  const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
 
   const {
     data: tasks,
@@ -194,6 +195,7 @@ export default function DashboardPage() {
       onSuccess: () => {
         reset();
         refetch();
+        setIsAddTaskOpen(false);
       },
     });
   };
@@ -245,7 +247,15 @@ export default function DashboardPage() {
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-6 py-6">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-xl font-semibold">Task Board</h2>
-          <Dialog>
+          <Dialog
+            open={isAddTaskOpen}
+            onOpenChange={(open) => {
+              setIsAddTaskOpen(open);
+              if (!open) {
+                reset();
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="bg-primary text-primary-foreground shadow hover:bg-primary/90">
                 + Add Task

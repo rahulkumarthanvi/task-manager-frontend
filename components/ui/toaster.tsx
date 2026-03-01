@@ -5,10 +5,14 @@ import { ToastEventDetail } from '../../lib/toast';
 
 interface ToastItem extends ToastEventDetail {
   id: number;
+  expiresAt: number;
 }
+
+const TOAST_DURATION_MS = 6000;
 
 export function Toaster() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     const onToast = (event: Event) => {
@@ -23,18 +27,29 @@ export function Toaster() {
         id: Date.now() + Math.floor(Math.random() * 1000),
         variant: detail.variant,
         message: detail.message,
+        expiresAt: Date.now() + TOAST_DURATION_MS,
       };
 
       setToasts((prev) => [...prev, toast]);
 
       window.setTimeout(() => {
         setToasts((prev) => prev.filter((item) => item.id !== toast.id));
-      }, 3000);
+      }, TOAST_DURATION_MS);
     };
 
     window.addEventListener('app-toast', onToast as EventListener);
     return () => {
       window.removeEventListener('app-toast', onToast as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -50,7 +65,10 @@ export function Toaster() {
           }`}
           role="status"
         >
-          {toast.message}
+          <p>{toast.message}</p>
+          <p className="mt-1 text-[11px] opacity-80">
+            Closes in {Math.max(0, Math.ceil((toast.expiresAt - now) / 1000))}s
+          </p>
         </div>
       ))}
     </div>
