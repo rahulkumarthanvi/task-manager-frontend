@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight } from 'lucide-react';
 import { api, ApiResponse } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
 import { Button } from '../../components/ui/button';
@@ -57,20 +58,41 @@ interface TaskStats {
   completedCount: number;
 }
 
+const statusActions: Array<{ label: string; status: Task['status'] }> = [
+  { label: 'Mark Complete', status: 'Completed' },
+  { label: 'Mark Pending', status: 'Pending' },
+  { label: 'Mark In Progress', status: 'In Progress' },
+  { label: 'Mark Blocked', status: 'Blocked' },
+];
+
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, isLoading: authLoading, logout } = useAuth();
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<Task['status'] | ''>('Pending');
+  const [projectFilter, setProjectFilter] = useState('');
+  const [taskActionIndex, setTaskActionIndex] = useState<Record<string, number>>(
+    {},
+  );
 
   const {
     data: tasks,
     isLoading: tasksLoading,
     refetch,
   } = useQuery<Task[]>({
-    queryKey: ['tasks'],
+    queryKey: ['tasks', statusFilter, projectFilter],
     queryFn: async () => {
-      const res = await api.get<ApiResponse<Task[]>>('/tasks');
+      const params = new URLSearchParams();
+      if (statusFilter) {
+        params.set('status', statusFilter);
+      }
+      if (projectFilter) {
+        params.set('projectName', projectFilter);
+      }
+      const query = params.toString();
+      const path = query ? `/tasks?${query}` : '/tasks';
+      const res = await api.get<ApiResponse<Task[]>>(path);
       return res.data.data;
     },
   });
@@ -103,9 +125,11 @@ export default function DashboardPage() {
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (params: { id: string; data: Partial<TaskFormValues> }) => {
-      const res = await api.patch<ApiResponse<Task>>(`/tasks/${params.id}`, params.data);
+  const updateStatusMutation = useMutation({
+    mutationFn: async (params: { id: string; status: Task['status'] }) => {
+      const res = await api.patch<ApiResponse<Task>>(`/tasks/${params.id}/status`, {
+        status: params.status,
+      });
       return res.data.data;
     },
     onSuccess: () => {
@@ -158,6 +182,21 @@ export default function DashboardPage() {
       case 'Low':
         return 'green' as const;
     }
+  };
+
+  const getTaskAction = (taskId: string) => {
+    const index = taskActionIndex[taskId] ?? 0;
+    return statusActions[index];
+  };
+
+  const cycleTaskAction = (taskId: string) => {
+    setTaskActionIndex((prev) => {
+      const currentIndex = prev[taskId] ?? 0;
+      return {
+        ...prev,
+        [taskId]: (currentIndex + 1) % statusActions.length,
+      };
+    });
   };
 
   const {
@@ -382,17 +421,12 @@ export default function DashboardPage() {
           <span className="text-slate-300">Filters:</span>
           <select
             className="h-9 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-100"
-            onChange={async (e) => {
-              const value = e.target.value;
-              const params = new URLSearchParams();
-              if (value) params.set('status', value);
-              const res = await api.get<ApiResponse<Task[]>>(
-                `/tasks?${params.toString()}`,
-              );
-              queryClient.setQueryData(['tasks'], res.data.data);
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as Task['status'] | '');
             }}
           >
-            <option value="">Status: Incomplete (default)</option>
+            <option value="">Status: Incomplete</option>
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
             <option value="Blocked">Blocked</option>
@@ -400,14 +434,9 @@ export default function DashboardPage() {
           </select>
           <select
             className="h-9 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-100"
-            onChange={async (e) => {
-              const value = e.target.value;
-              const params = new URLSearchParams();
-              if (value) params.set('projectName', value);
-              const res = await api.get<ApiResponse<Task[]>>(
-                `/tasks?${params.toString()}`,
-              );
-              queryClient.setQueryData(['tasks'], res.data.data);
+            value={projectFilter}
+            onChange={(e) => {
+              setProjectFilter(e.target.value);
             }}
           >
             <option value="">Project: All</option>
@@ -469,24 +498,37 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-700 bg-slate-900 text-xs text-slate-100 hover:bg-slate-800"
-                    onClick={() =>
-                      updateMutation.mutate({
-                        id: task._id,
-                        data: {
-                          status:
-                            task.status === 'Completed'
-                              ? 'Pending'
-                              : 'Completed',
-                        },
-                      })
-                    }
-                  >
-                    {task.status === 'Completed' ? 'Mark Incomplete' : 'Mark Complete'}
-                  </Button>
+                  {(() => {
+                    const action = getTaskAction(task._id);
+                    return (
+                      <div className="flex items-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-r-none border-slate-700 bg-slate-900 text-xs text-slate-100 hover:bg-slate-800"
+                          onClick={() =>
+                            updateStatusMutation.mutate({
+                              id: task._id,
+                              status: action.status,
+                            })
+                          }
+                        >
+                          <span className="inline-flex min-w-28 justify-center">
+                            {action.label}
+                          </span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-l-none border-l-0 border-slate-700 bg-slate-900 px-2 text-slate-100 hover:bg-slate-800"
+                          onClick={() => cycleTaskAction(task._id)}
+                          aria-label="Cycle status action"
+                        >
+                          <ChevronRight size={14} />
+                        </Button>
+                      </div>
+                    );
+                  })()}
                   <Button
                     variant="destructive"
                     size="sm"
